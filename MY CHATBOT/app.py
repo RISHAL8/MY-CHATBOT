@@ -75,13 +75,14 @@ def chat():
         return jsonify({'error': 'No message provided.'}), 400
 
     try:
-        # Use the QA chain to get an answer from the document
-        answer = qa_chain.run(user_message)
+        # Use the QA chain to get an answer from the document (CORRECTED LINE)
+        result = qa_chain.invoke({"query": user_message})
+        answer = result['result']
         return jsonify({'reply': answer})
     except Exception as e:
         print(f"Error during question answering: {e}")
         return jsonify({'error': 'Failed to get a response from the model.'}), 500
-
+    
 # --- Main Execution ---
 if __name__ == '__main__':
     # Initialize the chatbot when the server starts
