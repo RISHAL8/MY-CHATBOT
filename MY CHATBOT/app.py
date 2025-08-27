@@ -53,7 +53,7 @@ def initialize_chatbot():
 
         # 6. Initialize the Language Model and QA Chain
         llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.2)
-        qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstore.as_ retriever())
+        qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstore.as_retriever())
 
         print("✅ Chatbot initialized successfully!")
 
