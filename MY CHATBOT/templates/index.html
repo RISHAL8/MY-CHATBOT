@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Chatbot</title>
+    <style>
+        /* Basic Styling for the Chat Interface */
+        body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
+        #chat-container { max-width: 600px; margin: 50px auto; border: 1px solid #ccc; border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        #chat-box { height: 400px; padding: 10px; overflow-y: auto; background-color: #fff; border-bottom: 1px solid #ccc; }
+        .message { margin-bottom: 15px; }
+        .user-message { text-align: right; color: #333; }
+        .bot-message { text-align: left; color: #0056b3; }
+        #input-area { display: flex; padding: 10px; background-color: #f9f9f9; }
+        #user-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        #send-btn { padding: 10px 15px; margin-left: 10px; border: none; background-color: #007bff; color: white; border-radius: 4px; cursor: pointer; }
+        #send-btn:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="chat-box">
+            <div class="message bot-message">Hello! How can I help you today?</div>
+        </div>
+        <div id="input-area">
+            <input type="text" id="user-input" placeholder="Type your message...">
+            <button id="send-btn">Send</button>
+        </div>
+    </div>
+
+    <script>
+        // JavaScript to handle sending messages to the backend
+        const chatBox = document.getElementById('chat-box');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        async function sendMessage() {
+            const messageText = userInput.value.trim();
+            if (messageText === '') return;
+
+            // Display user's message
+            addMessage(messageText, 'user-message');
+            userInput.value = '';
+
+            try {
+                // Send message to the Flask backend
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message: messageText })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                // Display bot's reply
+                addMessage(data.reply, 'bot-message');
+
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage('Sorry, something went wrong. Please try again.', 'bot-message');
+            }
+        }
+
+        function addMessage(text, className) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', className);
+            messageElement.innerText = text;
+            chatBox.appendChild(messageElement);
+            chatBox.scrollTop = chatBox.scrollHeight; // Auto-scroll to the bottom
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
