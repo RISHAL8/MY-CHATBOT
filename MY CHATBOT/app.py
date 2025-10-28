@@ -1,91 +1,104 @@
-# app.py (NEW AND IMPROVED CODE)
+# app.py (production-ready)
 import os
+from pathlib import Path
+import logging
 from flask import Flask, request, jsonify, render_template
 
-# --- Import All Necessary Libraries from Your Colab File ---
+# LangChain and provider imports
 from langchain.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain.chains import RetrievalQA
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", template_folder="templates")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# --- Configuration ---
-# PASTE YOUR GEMINI API KEY HERE
-API_KEY = "AIzaSyBEfUPhyvmWWKNbUaPafu3djJ6-K0rZvCw"
+# Configuration: read API key from environment
+API_KEY = os.getenv("GOOGLE_API_KEY")
+if not API_KEY:
+    logger.warning("GOOGLE_API_KEY is not set. Set it in the environment before running.")
 
-# Global variable to hold the question-answering chain
+# Paths (relative to this file)
+BASE_DIR = Path(__file__).resolve().parent
+DOC_PATH = BASE_DIR / "Document for Model Final.txt"
+FAISS_INDEX_DIR = BASE_DIR / "faiss_index"
+
 qa_chain = None
 
 def initialize_chatbot():
     """
-    This function loads the document, creates the vector store,
-    and initializes the question-answering chain.
+    Load document, build or load FAISS embeddings, and initialize RetrievalQA chain.
     """
     global qa_chain
     try:
-        print("Initializing chatbot...")
+        logger.info("Initializing chatbot...")
 
-        # 1. Set the API Key
-        os.environ["GOOGLE_API_KEY"] = API_KEY
+        # Ensure provider env var is set for underlying library
+        if API_KEY:
+            os.environ["GOOGLE_API_KEY"] = API_KEY
 
-        # 2. Define the path to your document
-        # This path assumes the file is in the same main folder as app.py
-        file_path = "Document for Model Final.txt"
+        # Check document exists
+        if not DOC_PATH.exists():
+            raise FileNotFoundError(f"Document file not found at: {DOC_PATH.resolve()}. "
+                                    "Place your source text file there or update DOC_PATH.")
 
-        # 3. Load the document
-        print(f"Loading document from: {file_path}")
-        loader = TextLoader(file_path, encoding='latin-1')
-        documents = loader.load()
-        print("Document loaded successfully.")
+        # Build or load vectorstore
+        if FAISS_INDEX_DIR.exists():
+            logger.info("Loading FAISS index from disk...")
+            vectorstore = FAISS.load_local(str(FAISS_INDEX_DIR))
+        else:
+            logger.info(f"Loading document from: {DOC_PATH}")
+            loader = TextLoader(str(DOC_PATH), encoding="latin-1")
+            documents = loader.load()
+            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+            chunks = splitter.split_documents(documents)
+            logger.info(f"Document split into {len(chunks)} chunks.")
+            embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+            vectorstore = FAISS.from_documents(chunks, embeddings)
+            logger.info("Saving FAISS index to disk...")
+            vectorstore.save_local(str(FAISS_INDEX_DIR))
 
-        # 4. Split the document into chunks
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-        chunks = splitter.split_documents(documents)
-        print(f"Document split into {len(chunks)} chunks.")
-
-        # 5. Create embeddings and the vector store (FAISS)
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        vectorstore = FAISS.from_documents(chunks, embeddings)
-        print("Vector store created successfully.")
-
-        # 6. Initialize the Language Model and QA Chain
+        # Initialize LLM and QA chain
         llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.2)
         qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstore.as_retriever())
+        logger.info("✅ Chatbot initialized successfully.")
 
-        print("✅ Chatbot initialized successfully!")
+    except Exception as exc:
+        logger.exception("❌ Error during chatbot initialization: %s", exc)
+        qa_chain = None
 
-    except Exception as e:
-        print(f"❌ Error during chatbot initialization: {e}")
-
-# --- Flask Routes ---
-@app.route('/')
+# Flask routes
+@app.route("/")
 def index():
-    return render_template('index.html')
+    return render_template("index.html")
 
-@app.route('/chat', methods=['POST'])
+@app.route("/chat", methods=["POST"])
 def chat():
-    if not qa_chain:
-        return jsonify({'error': 'The chatbot is not initialized. Please check the server logs.'}), 500
+    if qa_chain is None:
+        return jsonify({"error": "The chatbot is not initialized. Please check the server logs."}), 500
 
-    user_message = request.json.get('message')
+    body = request.get_json(silent=True) or {}
+    user_message = body.get("message")
     if not user_message:
-        return jsonify({'error': 'No message provided.'}), 400
+        return jsonify({"error": "No message provided."}), 400
 
     try:
-        # Use the QA chain to get an answer from the document (CORRECTED LINE)
-        result = qa_chain.invoke({"query": user_message})
-        answer = result['result']
-        return jsonify({'reply': answer})
-    except Exception as e:
-        print(f"Error during question answering: {e}")
-        return jsonify({'error': 'Failed to get a response from the model.'}), 500
-    
-# --- Main Execution ---
-if __name__ == '__main__':
-    # Initialize the chatbot when the server starts
+        # Robust call to the chain to handle different LangChain versions
+        result = qa_chain({"query": user_message})
+        if isinstance(result, str):
+            answer = result
+        elif isinstance(result, dict):
+            answer = result.get("result") or result.get("answer") or result.get("output_text") or str(result)
+        else:
+            answer = str(result)
+        return jsonify({"reply": answer})
+    except Exception as exc:
+        logger.exception("Error during question answering: %s", exc)
+        return jsonify({"error": "Failed to get a response from the model."}), 500
+
+if __name__ == "__main__":
     initialize_chatbot()
-    # Run the Flask app
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # For production use a WSGI server. Debug False for safety.
+    app.run(host="0.0.0.0", port=5000, debug=False)
