@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.env
+env/
+venv/
+.idea/
+.vscode/
+
+# Local data / indexes
+faiss_index/
+Document for Model Final.txt
+
+# OS
+.DS_Store
